@@ -17,9 +17,9 @@ export namespace Login {
         token: string;
         mfaStatus: string;
     }
-    export interface InitUser {
-        name: string;
-        password: string;
+    export interface PasskeyBeginResponse {
+        sessionId: string;
+        publicKey: Record<string, any>;
     }
     export interface ResCaptcha {
         imagePath: string;
@@ -28,5 +28,18 @@ export namespace Login {
     }
     export interface ResAuthButtons {
         [propName: string]: any;
+    }
+
+    export interface LoginSetting {
+        isDemo: boolean;
+        isIntl: boolean;
+        isFxplay: boolean;
+        language: string;
+        menuTabs: string;
+        panelName: string;
+        theme: string;
+        isOffLine: boolean;
+        needCaptcha: boolean;
+        passkeySetting: boolean;
     }
 }

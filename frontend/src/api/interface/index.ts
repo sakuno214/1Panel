@@ -22,13 +22,19 @@ export interface SearchWithPage {
     info: string;
     page: number;
     pageSize: number;
+    orderBy?: string;
+    order?: string;
+    name?: string;
 }
 export interface CommonModel {
     id: number;
-    CreatedAt?: string;
-    UpdatedAt?: string;
+    createdAt?: string;
+    updatedAt?: string;
 }
 export interface DescriptionUpdate {
     id: number;
     description: string;
+}
+export interface UpdateByFile {
+    file: string;
 }

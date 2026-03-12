@@ -25,7 +25,7 @@
                 @change="updateParam"
             ></el-input>
             <el-select
-                style="width: 100%"
+                class="p-w-200"
                 v-model="form[p.envKey]"
                 v-if="p.type == 'service'"
                 @change="changeService(form[p.envKey], p.services)"
@@ -37,12 +37,18 @@
                     :label="service.label"
                 ></el-option>
             </el-select>
-            <span v-if="p.type === 'service' && p.services.length === 0">
-                <el-link type="primary" :underline="false" @click="toPage(p.key)">
+            <span v-if="p.type === 'service' && p.services.length === 0" class="ml-1.5">
+                <el-link type="primary" underline="never" @click="toPage(p.key)">
                     {{ $t('app.toInstall') }}
                 </el-link>
             </span>
-            <el-select v-model="form[p.envKey]" v-if="p.type == 'select'">
+            <el-select
+                v-model="form[p.envKey]"
+                v-if="p.type == 'select'"
+                :multiple="p.multiple"
+                :allowCreate="p.allowCreate"
+                filterable
+            >
                 <el-option
                     v-for="service in p.values"
                     :key="service.label"
@@ -50,13 +56,13 @@
                     :label="service.label"
                 ></el-option>
             </el-select>
-            <el-row :gutter="10" v-if="p.type == 'apps'">
-                <el-col :span="12">
+            <div v-if="p.type == 'apps'" class="flex space-x-4">
+                <div class="flex-1">
                     <el-form-item :prop="p.prop">
                         <el-select
                             v-model="form[p.envKey]"
                             @change="getServices(p.child.envKey, form[p.envKey], p)"
-                            style="width: 100%"
+                            class="p-w-200"
                         >
                             <el-option
                                 v-for="service in p.values"
@@ -66,43 +72,74 @@
                             ></el-option>
                         </el-select>
                     </el-form-item>
-                </el-col>
-                <el-col :span="12">
+                </div>
+                <div class="flex-2">
                     <el-form-item :prop="p.childProp">
                         <el-select
                             v-model="form[p.child.envKey]"
                             v-if="p.child.type == 'service'"
                             @change="changeService(form[p.child.envKey], p.services)"
+                            class="p-w-300"
                         >
                             <el-option
                                 v-for="service in p.services"
                                 :key="service.label"
                                 :value="service.value"
                                 :label="service.label"
-                            ></el-option>
+                                :disabled="service.status != 'Running'"
+                            >
+                                <el-row :gutter="5">
+                                    <el-col :span="14">
+                                        <span>{{ service.label }}</span>
+                                    </el-col>
+                                    <el-col :span="6">
+                                        <span v-if="service.from != ''">
+                                            <el-tag v-if="service.from === 'local'">
+                                                {{ $t('commons.table.local') }}
+                                            </el-tag>
+                                            <el-tag v-else type="success">{{ $t('database.remote') }}</el-tag>
+                                            <Status
+                                                class="ml-2"
+                                                :key="service.status"
+                                                :status="service.status"
+                                            ></Status>
+                                        </span>
+                                    </el-col>
+                                </el-row>
+                            </el-option>
                         </el-select>
                     </el-form-item>
-                </el-col>
-                <el-col>
-                    <span v-if="p.child.type === 'service' && p.services.length === 0">
-                        <el-link type="primary" :underline="false" @click="toPage(form[p.envKey])">
-                            {{ $t('app.toInstall') }}
-                        </el-link>
-                    </span>
-                </el-col>
-            </el-row>
+                </div>
+                <span v-if="p.child.type === 'service' && p.services.length === 0">
+                    <el-link type="primary" underline="never" @click="toPage(form[p.envKey])">
+                        {{ $t('app.toInstall') }}
+                    </el-link>
+                </span>
+            </div>
+            <span class="input-help" v-if="p.description">{{ getDescription(p) }}</span>
+        </el-form-item>
+        <el-form-item v-if="isMysql(form, p.envKey)" :label="$t('database.format')" prop="format">
+            <el-select filterable v-model="form.format" @change="loadCollations()">
+                <el-option v-for="item of formatOptions" :key="item.format" :label="item.format" :value="item.format" />
+            </el-select>
+        </el-form-item>
+        <el-form-item v-if="isMysql(form, p.envKey)" :label="$t('database.collation')" prop="collation">
+            <el-select filterable v-model="form.collation">
+                <el-option v-for="item of collationOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+            <span class="input-help">{{ $t('database.collationHelper', [form.format]) }}</span>
         </el-form-item>
     </div>
 </template>
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { getRandomStr } from '@/utils/util';
-import { GetAppService } from '@/api/modules/app';
+import { getAppService } from '@/api/modules/app';
 import { Rules } from '@/global/form-rules';
 import { App } from '@/api/interface/app';
-import { useRouter } from 'vue-router';
-import { useI18n } from 'vue-i18n';
-const router = useRouter();
+import { getDBName, getLabel, getDescription } from '@/utils/util';
+import { getPathByType } from '@/api/modules/files';
+import { loadFormatCollations } from '@/api/modules/database';
 
 interface ParamObj extends App.FromField {
     services: App.AppService[];
@@ -138,7 +175,10 @@ const props = defineProps({
     },
 });
 
-const form = reactive({});
+const form = reactive({
+    format: '',
+    collation: '',
+});
 let rules = reactive({});
 const params = computed({
     get() {
@@ -158,6 +198,10 @@ const updateParam = () => {
     emit('update:form', form);
 };
 
+const isMysql = (form: Object, envKey: string) => {
+    return form['PANEL_DB_HOST'] != undefined && (form[envKey] == 'mysql' || form[envKey] == 'mariadb');
+};
+
 const handleParams = () => {
     rules = props.rules;
     if (params.value != undefined && params.value.formFields != undefined) {
@@ -167,15 +211,24 @@ const handleParams = () => {
             pObj.disabled = p.disabled;
             paramObjs.value.push(pObj);
             if (p.random) {
-                form[p.envKey] = p.default + '_' + getRandomStr(6);
+                if (p.envKey === 'PANEL_DB_NAME') {
+                    form[p.envKey] = p.default + '_' + getDBName(6);
+                } else {
+                    form[p.envKey] = p.default + '_' + getRandomStr(6);
+                }
             } else {
                 form[p.envKey] = p.default;
+            }
+            if (p.type == 'text' && p.envKey == 'WEBSITE_DIR') {
+                getPathByType('websiteDir').then((res) => {
+                    form[p.envKey] = res.data;
+                });
             }
             if (p.required) {
                 if (p.type === 'service' || p.type === 'apps') {
                     rules[p.envKey] = [Rules.requiredSelect];
                     if (p.child) {
-                        p.childProp = p.child.envKey;
+                        p.childProp = propStart.value + p.child.envKey;
                         if (p.child.type === 'service') {
                             rules[p.child.envKey] = [Rules.requiredSelect];
                         }
@@ -186,6 +239,8 @@ const handleParams = () => {
                 if (p.rule && p.rule != '') {
                     rules[p.envKey].push(Rules[p.rule]);
                 }
+            } else {
+                delete rules[p.envKey];
             }
             if (p.type === 'apps') {
                 getServices(p.child.envKey, p.default, p);
@@ -205,7 +260,11 @@ const handleParams = () => {
 
 const getServices = async (childKey: string, key: string | undefined, pObj: ParamObj | undefined) => {
     pObj.services = [];
-    await GetAppService(key).then((res) => {
+    appKey.value = key || '';
+    if (appKey.value == 'mysql' || appKey.value == 'mariadb') {
+        form.format = 'utf8mb4';
+    }
+    await getAppService(key).then((res) => {
         pObj.services = res.data || [];
         form[childKey] = '';
         if (res.data && res.data.length > 0) {
@@ -232,20 +291,30 @@ const changeService = (value: string, services: App.AppService[]) => {
             });
         }
     });
+    if (appKey.value == 'mysql' || appKey.value == 'mariadb') {
+        loadOptions(value);
+    }
     updateParam();
 };
 
-const getLabel = (row: ParamObj): string => {
-    const language = useI18n().locale.value;
-    if (language == 'zh') {
-        return row.labelZh;
-    } else {
-        return row.labelEn;
-    }
+const toPage = (key: string) => {
+    window.location.href = '/apps/all?install=' + key;
 };
 
-const toPage = (appKey: string) => {
-    router.push({ name: 'AppDetail', params: { appKey: appKey } });
+const formatOptions = ref();
+const collationOptions = ref();
+const appKey = ref('');
+
+const loadOptions = async (database: string) => {
+    const defaultOptions = [{ format: 'utf8mb4' }, { format: 'utf8mb3' }, { format: 'gbk' }, { format: 'big5' }];
+    await loadFormatCollations(database).then((res) => {
+        formatOptions.value = res.data || defaultOptions;
+        loadCollations();
+    });
+};
+
+const loadCollations = async () => {
+    collationOptions.value = formatOptions.value?.find((item) => item.format === form.format)?.collations || [];
 };
 
 onMounted(() => {
